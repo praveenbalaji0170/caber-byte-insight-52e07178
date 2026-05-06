@@ -256,6 +256,3 @@ function ProcessingView({
   );
 }
 
-function Index() {
-  return <PlaceholderIndex />;
-}
