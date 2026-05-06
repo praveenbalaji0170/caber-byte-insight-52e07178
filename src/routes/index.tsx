@@ -1,26 +1,258 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { Logo } from "@/components/Logo";
+import { Dropzone } from "@/components/Dropzone";
+import { Dashboard } from "@/components/Dashboard";
+import { renderPdfPages, type RenderedPage } from "@/lib/pdf";
+import {
+  computeDocumentScore,
+  computePageScore,
+  computeQE,
+  type PageAnalysis,
+} from "@/lib/attention";
+import { ocrPage, summarizeDocument } from "@/server/ai.functions";
+import { useServerFn } from "@tanstack/react-start";
+import { BrainCircuit, Eye, Layers, Loader2, ScanText, Sparkles, Zap } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+type Stage = "idle" | "rendering" | "ocr" | "analyzing" | "summarizing" | "done" | "error";
+
+function Index() {
+  const ocrFn = useServerFn(ocrPage);
+  const summarizeFn = useServerFn(summarizeDocument);
+
+  const [stage, setStage] = useState<Stage>("idle");
+  const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    fileName: string;
+    pages: PageAnalysis[];
+    rendered: RenderedPage[];
+    documentScore: number;
+    qe: ReturnType<typeof computeQE>;
+    processingMs: number;
+    summary: string | null;
+  } | null>(null);
+
+  const handleFile = async (file: File) => {
+    setError(null);
+    setResult(null);
+    const t0 = performance.now();
+    try {
+      setStage("rendering");
+      setProgress({ current: 0, total: 0, label: "Rendering pages" });
+      const { pages: rendered } = await renderPdfPages(file, (c, t) =>
+        setProgress({ current: c, total: t, label: "Rendering pages" }),
+      );
+
+      setStage("ocr");
+      const analyses: PageAnalysis[] = [];
+      for (let i = 0; i < rendered.length; i++) {
+        setProgress({ current: i, total: rendered.length, label: "Extracting text (OCR)" });
+        const ocr = await ocrFn({
+          data: { imageDataUrl: rendered[i].dataUrl, pageNumber: rendered[i].pageNumber },
+        });
+        analyses.push(computePageScore(rendered[i], ocr));
+      }
+
+      setStage("analyzing");
+      const { documentScore } = computeDocumentScore(analyses);
+      const qe = computeQE(analyses);
+
+      setStage("summarizing");
+      setProgress({ current: 0, total: 1, label: "Generating AI insights" });
+      const fullText = analyses.map((a) => `[Page ${a.pageNumber}]\n${a.text}`).join("\n\n");
+      let summary: string | null = null;
+      try {
+        const r = await summarizeFn({ data: { fullText } });
+        summary = r.summary;
+      } catch (e) {
+        summary = `_Summary unavailable: ${(e as Error).message}_`;
+      }
+
+      setResult({
+        fileName: file.name,
+        pages: analyses,
+        rendered,
+        documentScore,
+        qe,
+        processingMs: performance.now() - t0,
+        summary,
+      });
+      setStage("done");
+    } catch (e) {
+      console.error(e);
+      setError((e as Error).message ?? "Processing failed");
+      setStage("error");
+    }
+  };
+
+  const reset = () => {
+    setStage("idle");
+    setResult(null);
+    setError(null);
+    setProgress({ current: 0, total: 0, label: "" });
+  };
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-10">
+      <header className="mx-auto flex max-w-7xl items-center justify-between">
+        <Logo />
+        <div className="hidden items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur sm:flex">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-primary shadow-[0_0_8px_var(--primary)]" />
+          Hierarchical Attention OCR · Powered by Gemini 2.5
+        </div>
+      </header>
+
+      <div className="mx-auto mt-10 max-w-7xl">
+        {stage === "idle" && (
+          <div className="space-y-12">
+            <section className="text-center">
+              <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                <Sparkles className="h-3 w-3" /> AI-Powered Document Intelligence
+              </div>
+              <h1 className="mx-auto mt-6 max-w-3xl text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
+                Hierarchical attention OCR for{" "}
+                <span className="bg-[var(--gradient-primary)] bg-clip-text text-transparent">
+                  large PDF documents
+                </span>
+              </h1>
+              <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground sm:text-lg">
+                CABER BYTE prioritizes pages and regions through document, page, and region
+                attention before extracting text — then evaluates quality and surfaces insights
+                with Gemini 2.5.
+              </p>
+            </section>
+
+            <section className="mx-auto max-w-3xl">
+              <Dropzone onFile={handleFile} />
+            </section>
+
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { icon: Layers, t: "Document Attention", d: "Density × Complexity × Quality" },
+                { icon: Eye, t: "Page Attention", d: "TD · LI · IQ weighted scoring" },
+                { icon: ScanText, t: "Multimodal OCR", d: "Gemini 2.5 vision extraction" },
+                { icon: BrainCircuit, t: "AI Insights", d: "Summary + key entities" },
+              ].map((f) => (
+                <div
+                  key={f.t}
+                  className="rounded-xl border border-border bg-[var(--gradient-card)] p-5 backdrop-blur"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                    <f.icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-3 text-sm font-semibold text-foreground">{f.t}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{f.d}</p>
+                </div>
+              ))}
+            </section>
+          </div>
+        )}
+
+        {(stage === "rendering" ||
+          stage === "ocr" ||
+          stage === "analyzing" ||
+          stage === "summarizing") && <ProcessingView stage={stage} progress={progress} />}
+
+        {stage === "error" && (
+          <div className="mx-auto max-w-xl rounded-xl border border-destructive/40 bg-destructive/10 p-6 text-center">
+            <p className="font-semibold text-destructive">Processing failed</p>
+            <p className="mt-2 text-sm text-foreground/80">{error}</p>
+            <button
+              onClick={reset}
+              className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {stage === "done" && result && (
+          <Dashboard
+            pages={result.pages}
+            rendered={result.rendered}
+            documentScore={result.documentScore}
+            qe={result.qe}
+            processingMs={result.processingMs}
+            summary={result.summary}
+            fileName={result.fileName}
+            onReset={reset}
+          />
+        )}
+      </div>
+
+      <footer className="mx-auto mt-16 max-w-7xl border-t border-border pt-6 text-center text-xs text-muted-foreground">
+        CABER BYTE · Hierarchical Attention OCR System
+      </footer>
+    </main>
+  );
+}
+
+function ProcessingView({
+  stage,
+  progress,
+}: {
+  stage: Stage;
+  progress: { current: number; total: number; label: string };
+}) {
+  const steps = [
+    { id: "rendering", label: "Streaming pages", icon: Layers },
+    { id: "ocr", label: "Multimodal OCR", icon: ScanText },
+    { id: "analyzing", label: "Attention scoring", icon: Zap },
+    { id: "summarizing", label: "AI insights", icon: BrainCircuit },
+  ];
+  const activeIdx = steps.findIndex((s) => s.id === stage);
+  const pct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="rounded-2xl border border-border bg-[var(--gradient-card)] p-8 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <div>
+            <div className="text-sm font-semibold text-foreground">{progress.label || "Processing"}</div>
+            {progress.total > 0 && (
+              <div className="text-xs text-muted-foreground">
+                {progress.current} / {progress.total}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-[var(--gradient-primary)] transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="mt-8 grid grid-cols-4 gap-3">
+          {steps.map((s, i) => {
+            const done = i < activeIdx;
+            const active = i === activeIdx;
+            return (
+              <div key={s.id} className="text-center">
+                <div
+                  className={`mx-auto flex h-10 w-10 items-center justify-center rounded-lg border transition ${
+                    active
+                      ? "border-primary bg-primary/20 text-primary shadow-[var(--shadow-glow)]"
+                      : done
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <s.icon className="h-4 w-4" />
+                </div>
+                <div className="mt-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {s.label}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-function Index() {
-  return <PlaceholderIndex />;
-}
