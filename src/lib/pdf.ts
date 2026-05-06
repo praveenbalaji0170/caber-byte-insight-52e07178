@@ -11,11 +11,16 @@ export interface RenderedPage {
   height: number;
 }
 
+export interface RenderResult {
+  pages: RenderedPage[];
+  totalPages: number;
+}
+
 export async function renderPdfPages(
   file: File,
   onProgress?: (current: number, total: number) => void,
   maxPages = 20,
-): Promise<RenderedPage[]> {
+): Promise<RenderResult> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const total = Math.min(pdf.numPages, maxPages);
@@ -36,5 +41,5 @@ export async function renderPdfPages(
     });
     onProgress?.(i, total);
   }
-  return { pages, totalPages: pdf.numPages } as any;
+  return { pages, totalPages: pdf.numPages };
 }
