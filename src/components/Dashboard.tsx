@@ -56,28 +56,85 @@ export function Dashboard({
     words: p.wordCount,
   }));
 
-  const exportJson = () => {
-    const blob = new Blob(
-      [JSON.stringify({ fileName, documentScore, qe, processingMs, summary, pages }, null, 2)],
-      { type: "application/json" },
-    );
+  const baseName = fileName.replace(/\.pdf$/i, "");
+  const generatedAt = new Date().toISOString();
+
+  const download = (content: string, mime: string, ext: string) => {
+    const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${fileName.replace(/\.pdf$/i, "")}-analysis.json`;
+    a.download = `${baseName}-ocr.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const exportText = () => {
-    const text = pages.map((p) => `--- Page ${p.pageNumber} ---\n${p.text}`).join("\n\n");
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${fileName.replace(/\.pdf$/i, "")}-text.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const sorted = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+    const body = sorted
+      .map(
+        (p) =>
+          `===== PAGE ${p.pageNumber} =====\n${(p.text || "").trim() || "[no text extracted]"}`,
+      )
+      .join("\n\n");
+    const header =
+      `CABER BYTE — OCR Extract\nDocument: ${fileName}\nGenerated: ${generatedAt}\nPages: ${pages.length}\n\n`;
+    download(header + body + "\n", "text/plain", "txt");
+  };
+
+  const exportJson = () => {
+    const sorted = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+    const payload = {
+      document_name: fileName,
+      generated_at: generatedAt,
+      processing_ms: Math.round(processingMs),
+      document_score: +documentScore.toFixed(4),
+      quality_evaluation: {
+        qe_score: +qe.qeScore.toFixed(4),
+        avg_confidence: +qe.avgConfidence.toFixed(4),
+        precision: +qe.precision.toFixed(4),
+        recall: +qe.recall.toFixed(4),
+      },
+      ai_summary: summary,
+      pages: sorted.map((p) => ({
+        page: p.pageNumber,
+        page_score: +p.pageScore.toFixed(4),
+        confidence: +p.confidence.toFixed(4),
+        word_count: p.wordCount,
+        text_density: +p.textDensity.toFixed(4),
+        layout_importance: +p.layoutImportance.toFixed(4),
+        image_quality: +p.imageQuality.toFixed(4),
+        regions: [
+          {
+            type: "page",
+            text: p.text,
+            confidence: +p.confidence.toFixed(4),
+            region_score: +p.pageScore.toFixed(4),
+          },
+        ],
+      })),
+    };
+    download(JSON.stringify(payload, null, 2), "application/json", "json");
+  };
+
+  const exportCsv = () => {
+    const sorted = [...pages].sort((a, b) => a.pageNumber - b.pageNumber);
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = [
+      ["page", "region_type", "text", "confidence", "region_score", "page_score"],
+      ...sorted.map((p) => [
+        p.pageNumber,
+        "page",
+        (p.text || "").replace(/\r?\n/g, " ").trim(),
+        p.confidence.toFixed(4),
+        p.pageScore.toFixed(4),
+        p.pageScore.toFixed(4),
+      ]),
+    ];
+    download(rows.map((r) => r.map(esc).join(",")).join("\n"), "text/csv", "csv");
   };
 
   return (
@@ -92,13 +149,19 @@ export function Dashboard({
             onClick={exportText}
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
           >
-            <Download className="h-4 w-4" /> Text
+            <Download className="h-4 w-4" /> TXT
           </button>
           <button
             onClick={exportJson}
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
           >
             <Download className="h-4 w-4" /> JSON
+          </button>
+          <button
+            onClick={exportCsv}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+          >
+            <Download className="h-4 w-4" /> CSV
           </button>
           <button
             onClick={onReset}
@@ -181,7 +244,7 @@ export function Dashboard({
             <BrainCircuit className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">AI Insights</h3>
             <span className="ml-auto rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-              Gemini 2.5
+              Intelligent Analysis
             </span>
           </div>
           <div className="prose prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">

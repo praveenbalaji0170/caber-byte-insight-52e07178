@@ -103,7 +103,7 @@ function Index() {
         <Logo />
         <div className="hidden items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-xs text-muted-foreground backdrop-blur sm:flex">
           <span className="h-2 w-2 animate-pulse rounded-full bg-primary shadow-[0_0_8px_var(--primary)]" />
-          Hierarchical Attention OCR · Powered by Gemini 2.5
+          Hierarchical Attention OCR · AI Document Intelligence
         </div>
       </header>
 
@@ -122,8 +122,8 @@ function Index() {
               </h1>
               <p className="mx-auto mt-5 max-w-2xl text-base text-muted-foreground sm:text-lg">
                 CABER BYTE prioritizes pages and regions through document, page, and region
-                attention before extracting text — then evaluates quality and surfaces insights
-                with Gemini 2.5.
+                attention before extracting text — then evaluates quality and surfaces
+                AI-powered insights.
               </p>
             </section>
 
@@ -135,7 +135,7 @@ function Index() {
               {[
                 { icon: Layers, t: "Document Attention", d: "Density × Complexity × Quality" },
                 { icon: Eye, t: "Page Attention", d: "TD · LI · IQ weighted scoring" },
-                { icon: ScanText, t: "Multimodal OCR", d: "Gemini 2.5 vision extraction" },
+                { icon: ScanText, t: "Multimodal OCR", d: "Vision-based text extraction" },
                 { icon: BrainCircuit, t: "AI Insights", d: "Summary + key entities" },
               ].map((f) => (
                 <div
