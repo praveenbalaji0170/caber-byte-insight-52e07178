@@ -29,14 +29,18 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "caberocr" },
+      { name: "description", content: "IntelliScan AI is an AI-powered web application for intelligent processing of large PDF documents." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "caberocr" },
+      { property: "og:description", content: "IntelliScan AI is an AI-powered web application for intelligent processing of large PDF documents." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "caberocr" },
+      { name: "twitter:description", content: "IntelliScan AI is an AI-powered web application for intelligent processing of large PDF documents." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e365a9ac-a959-4636-a25c-998174b7e441/id-preview-b31ccdf4--571c1fd0-d093-4f15-ba80-9f3b1fcf45b1.lovable.app-1778169741201.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/e365a9ac-a959-4636-a25c-998174b7e441/id-preview-b31ccdf4--571c1fd0-d093-4f15-ba80-9f3b1fcf45b1.lovable.app-1778169741201.png" },
     ],
     links: [
       {
