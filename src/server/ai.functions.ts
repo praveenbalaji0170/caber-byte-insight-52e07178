@@ -6,21 +6,35 @@ const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 async function callAI(body: unknown) {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("LOVABLE_API_KEY missing");
-  const res = await fetch(GATEWAY, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
+  const maxAttempts = 4;
+  let lastErr = "";
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(GATEWAY, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return res.json();
     const txt = await res.text();
-    if (res.status === 429) throw new Error("Rate limit exceeded. Try again shortly.");
-    if (res.status === 402) throw new Error("AI credits exhausted. Add credits in Settings → Workspace → Usage.");
+    lastErr = txt;
+    if (res.status === 429) {
+      // Exponential backoff: 1s, 2s, 4s, 8s
+      const retryAfter = Number(res.headers.get("retry-after")) || 0;
+      const delay = retryAfter > 0 ? retryAfter * 1000 : 1000 * Math.pow(2, attempt);
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw new Error("Rate limit exceeded. Please wait a moment and try again.");
+    }
+    if (res.status === 402)
+      throw new Error("AI credits exhausted. Add credits in Settings → Workspace → Usage.");
     throw new Error(`AI gateway error ${res.status}: ${txt.slice(0, 200)}`);
   }
-  return res.json();
+  throw new Error(`AI gateway failed after retries: ${lastErr.slice(0, 200)}`);
 }
 
 export const ocrPage = createServerFn({ method: "POST" })
