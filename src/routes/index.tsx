@@ -171,7 +171,7 @@ function Index() {
               {[
                 { icon: Layers, t: "Document Attention", d: "Density × Complexity × Quality" },
                 { icon: Eye, t: "Page Attention", d: "TD · LI · IQ weighted scoring" },
-                { icon: ScanText, t: "Multimodal OCR", d: "Vision-based text extraction" },
+                { icon: ScanText, t: "Local PaddleOCR", d: "Page-by-page OCR extraction" },
                 { icon: BrainCircuit, t: "AI Insights", d: "Summary + key entities" },
               ].map((f) => (
                 <div
@@ -189,10 +189,9 @@ function Index() {
           </div>
         )}
 
-        {(stage === "rendering" ||
-          stage === "ocr" ||
-          stage === "analyzing" ||
-          stage === "summarizing") && <ProcessingView stage={stage} progress={progress} />}
+        {(stage === "rendering" || stage === "ocr" || stage === "analyzing") && (
+          <ProcessingView stage={stage} progress={progress} />
+        )}
 
         {stage === "error" && (
           <div className="mx-auto max-w-xl rounded-xl border border-destructive/40 bg-destructive/10 p-6 text-center">
@@ -215,6 +214,8 @@ function Index() {
             qe={result.qe}
             processingMs={result.processingMs}
             summary={result.summary}
+            summaryStatus={result.summaryStatus}
+            summaryError={result.summaryError}
             fileName={result.fileName}
             onReset={reset}
           />
@@ -237,9 +238,8 @@ function ProcessingView({
 }) {
   const steps = [
     { id: "rendering", label: "Streaming pages", icon: Layers },
-    { id: "ocr", label: "Multimodal OCR", icon: ScanText },
+    { id: "ocr", label: "Local PaddleOCR", icon: ScanText },
     { id: "analyzing", label: "Attention scoring", icon: Zap },
-    { id: "summarizing", label: "AI insights", icon: BrainCircuit },
   ];
   const activeIdx = steps.findIndex((s) => s.id === stage);
   const pct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
@@ -263,7 +263,7 @@ function ProcessingView({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="mt-8 grid grid-cols-4 gap-3">
+        <div className="mt-8 grid grid-cols-3 gap-3">
           {steps.map((s, i) => {
             const done = i < activeIdx;
             const active = i === activeIdx;
