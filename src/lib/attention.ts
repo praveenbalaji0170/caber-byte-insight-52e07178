@@ -5,6 +5,9 @@ export interface PageAnalysis {
   text: string;
   confidence: number;
   wordCount: number;
+  regions?: number;
+  engine?: string;
+  ocrError?: string;
   textDensity: number; // TD
   layoutImportance: number; // LI
   imageQuality: number; // IQ
@@ -13,7 +16,7 @@ export interface PageAnalysis {
 
 export function computePageScore(
   page: RenderedPage,
-  ocr: { text: string; confidence: number; wordCount: number },
+  ocr: { text: string; confidence: number; wordCount: number; regions?: number; engine?: string; error?: string },
 ): PageAnalysis {
   const area = page.width * page.height;
   const td = Math.min(1, ocr.wordCount / 400); // text density proxy
@@ -31,6 +34,9 @@ export function computePageScore(
     text: ocr.text,
     confidence: ocr.confidence,
     wordCount: ocr.wordCount,
+    regions: ocr.regions,
+    engine: ocr.engine,
+    ocrError: ocr.error,
     textDensity: td,
     layoutImportance: li,
     imageQuality: iq,

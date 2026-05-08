@@ -1,16 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { Dropzone } from "@/components/Dropzone";
 import { Dashboard } from "@/components/Dashboard";
 import { renderPdfPages, type RenderedPage } from "@/lib/pdf";
+import { runPaddleOcr } from "@/lib/paddleOcr.client";
 import {
   computeDocumentScore,
   computePageScore,
   computeQE,
   type PageAnalysis,
 } from "@/lib/attention";
-import { ocrPage, summarizeDocument } from "@/server/ai.functions";
+import { summarizeDocument } from "@/lib/ai.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { BrainCircuit, Eye, Layers, Loader2, ScanText, Sparkles, Zap } from "lucide-react";
 
@@ -18,11 +19,21 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Stage = "idle" | "rendering" | "ocr" | "analyzing" | "summarizing" | "done" | "error";
+type Stage = "idle" | "rendering" | "ocr" | "analyzing" | "done" | "error";
+type SummaryStatus = "queued" | "ready" | "unavailable";
+
+async function digestText(input: string) {
+  const bytes = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function Index() {
-  const ocrFn = useServerFn(ocrPage);
   const summarizeFn = useServerFn(summarizeDocument);
+  const runIdRef = useRef(0);
+  const summaryCacheRef = useRef(new Map<string, string>());
 
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
@@ -35,9 +46,13 @@ function Index() {
     qe: ReturnType<typeof computeQE>;
     processingMs: number;
     summary: string | null;
+    summaryStatus: SummaryStatus;
+    summaryError?: string;
+    documentId: string;
   } | null>(null);
 
   const handleFile = async (file: File) => {
+    const runId = ++runIdRef.current;
     setError(null);
     setResult(null);
     const t0 = performance.now();
@@ -51,10 +66,8 @@ function Index() {
       setStage("ocr");
       const analyses: PageAnalysis[] = [];
       for (let i = 0; i < rendered.length; i++) {
-        setProgress({ current: i, total: rendered.length, label: "Extracting text (OCR)" });
-        const ocr = await ocrFn({
-          data: { imageDataUrl: rendered[i].dataUrl, pageNumber: rendered[i].pageNumber },
-        });
+        setProgress({ current: i + 1, total: rendered.length, label: "Extracting text with local PaddleOCR" });
+        const ocr = await runPaddleOcr(rendered[i], { throttleMs: 120 });
         analyses.push(computePageScore(rendered[i], ocr));
       }
 
@@ -62,16 +75,10 @@ function Index() {
       const { documentScore } = computeDocumentScore(analyses);
       const qe = computeQE(analyses);
 
-      setStage("summarizing");
-      setProgress({ current: 0, total: 1, label: "Generating AI insights" });
       const fullText = analyses.map((a) => `[Page ${a.pageNumber}]\n${a.text}`).join("\n\n");
-      let summary: string | null = null;
-      try {
-        const r = await summarizeFn({ data: { fullText } });
-        summary = r.summary;
-      } catch (e) {
-        summary = `_Summary unavailable: ${(e as Error).message}_`;
-      }
+      const documentId = await digestText(`${file.name}:${file.size}:${file.lastModified}:${fullText}`);
+      const cachedSummary = summaryCacheRef.current.get(documentId) ?? null;
+      if (runId !== runIdRef.current) return;
 
       setResult({
         fileName: file.name,
@@ -80,9 +87,37 @@ function Index() {
         documentScore,
         qe,
         processingMs: performance.now() - t0,
-        summary,
+        summary: cachedSummary,
+        summaryStatus: cachedSummary ? "ready" : "queued",
+        documentId,
       });
       setStage("done");
+
+      if (!cachedSummary && fullText.trim()) {
+        summarizeFn({ data: { documentId, fileName: file.name, pageCount: analyses.length, fullText } })
+          .then((r) => {
+            if (runId !== runIdRef.current) return;
+            if (r.summary) summaryCacheRef.current.set(documentId, r.summary);
+            setResult((prev) =>
+              prev?.documentId === documentId
+                ? {
+                    ...prev,
+                    summary: r.summary ?? null,
+                    summaryStatus: r.unavailable ? "unavailable" : "ready",
+                    summaryError: r.error,
+                  }
+                : prev,
+            );
+          })
+          .catch((e) => {
+            if (runId !== runIdRef.current) return;
+            setResult((prev) =>
+              prev?.documentId === documentId
+                ? { ...prev, summary: null, summaryStatus: "unavailable", summaryError: (e as Error).message }
+                : prev,
+            );
+          });
+      }
     } catch (e) {
       console.error(e);
       setError((e as Error).message ?? "Processing failed");
@@ -91,6 +126,7 @@ function Index() {
   };
 
   const reset = () => {
+    runIdRef.current += 1;
     setStage("idle");
     setResult(null);
     setError(null);
@@ -135,7 +171,7 @@ function Index() {
               {[
                 { icon: Layers, t: "Document Attention", d: "Density × Complexity × Quality" },
                 { icon: Eye, t: "Page Attention", d: "TD · LI · IQ weighted scoring" },
-                { icon: ScanText, t: "Multimodal OCR", d: "Vision-based text extraction" },
+                { icon: ScanText, t: "Local PaddleOCR", d: "Page-by-page OCR extraction" },
                 { icon: BrainCircuit, t: "AI Insights", d: "Summary + key entities" },
               ].map((f) => (
                 <div
@@ -153,10 +189,9 @@ function Index() {
           </div>
         )}
 
-        {(stage === "rendering" ||
-          stage === "ocr" ||
-          stage === "analyzing" ||
-          stage === "summarizing") && <ProcessingView stage={stage} progress={progress} />}
+        {(stage === "rendering" || stage === "ocr" || stage === "analyzing") && (
+          <ProcessingView stage={stage} progress={progress} />
+        )}
 
         {stage === "error" && (
           <div className="mx-auto max-w-xl rounded-xl border border-destructive/40 bg-destructive/10 p-6 text-center">
@@ -179,6 +214,8 @@ function Index() {
             qe={result.qe}
             processingMs={result.processingMs}
             summary={result.summary}
+            summaryStatus={result.summaryStatus}
+            summaryError={result.summaryError}
             fileName={result.fileName}
             onReset={reset}
           />
@@ -201,9 +238,8 @@ function ProcessingView({
 }) {
   const steps = [
     { id: "rendering", label: "Streaming pages", icon: Layers },
-    { id: "ocr", label: "Multimodal OCR", icon: ScanText },
+    { id: "ocr", label: "Local PaddleOCR", icon: ScanText },
     { id: "analyzing", label: "Attention scoring", icon: Zap },
-    { id: "summarizing", label: "AI insights", icon: BrainCircuit },
   ];
   const activeIdx = steps.findIndex((s) => s.id === stage);
   const pct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
@@ -227,7 +263,7 @@ function ProcessingView({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <div className="mt-8 grid grid-cols-4 gap-3">
+        <div className="mt-8 grid grid-cols-3 gap-3">
           {steps.map((s, i) => {
             const done = i < activeIdx;
             const active = i === activeIdx;
