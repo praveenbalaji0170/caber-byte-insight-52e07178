@@ -22,6 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { StatCard } from "./StatCard";
+import { OcrInspector } from "./OcrInspector";
 import type { PageAnalysis } from "@/lib/attention";
 import type { RenderedPage } from "@/lib/pdf";
 
@@ -252,6 +253,8 @@ export function Dashboard({
           </div>
         </div>
       )}
+
+      <OcrInspector pages={pages} rendered={rendered} />
 
       <div className="rounded-xl border border-border bg-[var(--gradient-card)] p-5">
         <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
