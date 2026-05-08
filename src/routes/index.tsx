@@ -52,6 +52,7 @@ function Index() {
   } | null>(null);
 
   const handleFile = async (file: File) => {
+    const runId = ++runIdRef.current;
     setError(null);
     setResult(null);
     const t0 = performance.now();
@@ -65,10 +66,8 @@ function Index() {
       setStage("ocr");
       const analyses: PageAnalysis[] = [];
       for (let i = 0; i < rendered.length; i++) {
-        setProgress({ current: i, total: rendered.length, label: "Extracting text (OCR)" });
-        const ocr = await ocrFn({
-          data: { imageDataUrl: rendered[i].dataUrl, pageNumber: rendered[i].pageNumber },
-        });
+        setProgress({ current: i + 1, total: rendered.length, label: "Extracting text with local PaddleOCR" });
+        const ocr = await runPaddleOcr(rendered[i], { throttleMs: 120 });
         analyses.push(computePageScore(rendered[i], ocr));
       }
 
@@ -76,16 +75,10 @@ function Index() {
       const { documentScore } = computeDocumentScore(analyses);
       const qe = computeQE(analyses);
 
-      setStage("summarizing");
-      setProgress({ current: 0, total: 1, label: "Generating AI insights" });
       const fullText = analyses.map((a) => `[Page ${a.pageNumber}]\n${a.text}`).join("\n\n");
-      let summary: string | null = null;
-      try {
-        const r = await summarizeFn({ data: { fullText } });
-        summary = r.summary;
-      } catch (e) {
-        summary = `_Summary unavailable: ${(e as Error).message}_`;
-      }
+      const documentId = await digestText(`${file.name}:${file.size}:${file.lastModified}:${fullText}`);
+      const cachedSummary = summaryCacheRef.current.get(documentId) ?? null;
+      if (runId !== runIdRef.current) return;
 
       setResult({
         fileName: file.name,
@@ -94,9 +87,37 @@ function Index() {
         documentScore,
         qe,
         processingMs: performance.now() - t0,
-        summary,
+        summary: cachedSummary,
+        summaryStatus: cachedSummary ? "ready" : "queued",
+        documentId,
       });
       setStage("done");
+
+      if (!cachedSummary && fullText.trim()) {
+        summarizeFn({ data: { documentId, fileName: file.name, pageCount: analyses.length, fullText } })
+          .then((r) => {
+            if (runId !== runIdRef.current) return;
+            if (r.summary) summaryCacheRef.current.set(documentId, r.summary);
+            setResult((prev) =>
+              prev?.documentId === documentId
+                ? {
+                    ...prev,
+                    summary: r.summary ?? null,
+                    summaryStatus: r.unavailable ? "unavailable" : "ready",
+                    summaryError: r.error,
+                  }
+                : prev,
+            );
+          })
+          .catch((e) => {
+            if (runId !== runIdRef.current) return;
+            setResult((prev) =>
+              prev?.documentId === documentId
+                ? { ...prev, summary: null, summaryStatus: "unavailable", summaryError: (e as Error).message }
+                : prev,
+            );
+          });
+      }
     } catch (e) {
       console.error(e);
       setError((e as Error).message ?? "Processing failed");
@@ -105,6 +126,7 @@ function Index() {
   };
 
   const reset = () => {
+    runIdRef.current += 1;
     setStage("idle");
     setResult(null);
     setError(null);
