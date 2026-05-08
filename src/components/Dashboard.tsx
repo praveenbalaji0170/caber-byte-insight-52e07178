@@ -33,6 +33,8 @@ interface Props {
   qe: { qeScore: number; avgConfidence: number; precision: number; recall: number };
   processingMs: number;
   summary: string | null;
+  summaryStatus?: "queued" | "ready" | "unavailable";
+  summaryError?: string;
   fileName: string;
   onReset: () => void;
 }
@@ -44,6 +46,8 @@ export function Dashboard({
   qe,
   processingMs,
   summary,
+  summaryStatus = "ready",
+  summaryError,
   fileName,
   onReset,
 }: Props) {
@@ -97,6 +101,8 @@ export function Dashboard({
         recall: +qe.recall.toFixed(4),
       },
       ai_summary: summary,
+      ai_summary_status: summaryStatus,
+      ai_summary_error: summaryError ?? null,
       pages: sorted.map((p) => ({
         page: p.pageNumber,
         page_score: +p.pageScore.toFixed(4),
@@ -239,17 +245,21 @@ export function Dashboard({
         </div>
       </div>
 
-      {summary && (
+      {(summary || summaryStatus === "queued" || summaryStatus === "unavailable") && (
         <div className="rounded-xl border border-primary/30 bg-[var(--gradient-card)] p-6 shadow-[var(--shadow-glow)]">
           <div className="mb-3 flex items-center gap-2">
             <BrainCircuit className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">AI Insights</h3>
             <span className="ml-auto rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-              Intelligent Analysis
+              {summaryStatus === "queued" ? "Queued" : summaryStatus === "unavailable" ? "Optional" : "Ready"}
             </span>
           </div>
           <div className="prose prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-            {summary}
+            {summaryStatus === "queued"
+              ? "Document OCR is complete. AI document understanding is queued and will appear here when available."
+              : summaryStatus === "unavailable"
+                ? `AI document understanding is temporarily unavailable. OCR results, analytics, and exports remain fully available.${summaryError ? `\n\n${summaryError}` : ""}`
+                : summary}
           </div>
         </div>
       )}
