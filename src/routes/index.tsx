@@ -1,16 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { Dropzone } from "@/components/Dropzone";
 import { Dashboard } from "@/components/Dashboard";
 import { renderPdfPages, type RenderedPage } from "@/lib/pdf";
+import { runPaddleOcr } from "@/lib/paddleOcr.client";
 import {
   computeDocumentScore,
   computePageScore,
   computeQE,
   type PageAnalysis,
 } from "@/lib/attention";
-import { ocrPage, summarizeDocument } from "@/server/ai.functions";
+import { summarizeDocument } from "@/lib/ai.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { BrainCircuit, Eye, Layers, Loader2, ScanText, Sparkles, Zap } from "lucide-react";
 
@@ -18,11 +19,21 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-type Stage = "idle" | "rendering" | "ocr" | "analyzing" | "summarizing" | "done" | "error";
+type Stage = "idle" | "rendering" | "ocr" | "analyzing" | "done" | "error";
+type SummaryStatus = "queued" | "ready" | "unavailable";
+
+async function digestText(input: string) {
+  const bytes = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 function Index() {
-  const ocrFn = useServerFn(ocrPage);
   const summarizeFn = useServerFn(summarizeDocument);
+  const runIdRef = useRef(0);
+  const summaryCacheRef = useRef(new Map<string, string>());
 
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState({ current: 0, total: 0, label: "" });
@@ -35,6 +46,9 @@ function Index() {
     qe: ReturnType<typeof computeQE>;
     processingMs: number;
     summary: string | null;
+    summaryStatus: SummaryStatus;
+    summaryError?: string;
+    documentId: string;
   } | null>(null);
 
   const handleFile = async (file: File) => {
