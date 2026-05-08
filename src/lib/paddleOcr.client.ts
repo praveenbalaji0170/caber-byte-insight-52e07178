@@ -27,7 +27,8 @@ async function getPaddleOcr() {
   }
   if (paddle) return paddle;
   initPromise ??= import("@paddlejs-models/ocr").then(async (mod) => {
-    const ocr = (("default" in mod ? mod.default : mod) ?? mod) as PaddleOcrModule;
+    const moduleWithDefault = mod as unknown as PaddleOcrModule & { default?: PaddleOcrModule };
+    const ocr = moduleWithDefault.default ?? moduleWithDefault;
     await ocr.init();
     paddle = ocr;
     return ocr;
