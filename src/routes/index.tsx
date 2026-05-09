@@ -4,7 +4,6 @@ import { Logo } from "@/components/Logo";
 import { Dropzone } from "@/components/Dropzone";
 import { Dashboard } from "@/components/Dashboard";
 import { renderPdfPages, type RenderedPage } from "@/lib/pdf";
-import { runPaddleOcr } from "@/lib/paddleOcr.client";
 import {
   computeDocumentScore,
   computePageScore,
@@ -64,6 +63,7 @@ function Index() {
       );
 
       setStage("ocr");
+      const { runPaddleOcr } = await import("@/lib/paddleOcr.client");
       const analyses: PageAnalysis[] = [];
       for (let i = 0; i < rendered.length; i++) {
         setProgress({ current: i + 1, total: rendered.length, label: "Extracting text with local PaddleOCR" });
