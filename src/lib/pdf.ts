@@ -1,9 +1,3 @@
-import * as pdfjsLib from "pdfjs-dist";
-// @ts-ignore - vite worker import
-import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-
 export interface RenderedPage {
   pageNumber: number;
   dataUrl: string;
@@ -21,6 +15,9 @@ export async function renderPdfPages(
   onProgress?: (current: number, total: number) => void,
   maxPages = 20,
 ): Promise<RenderResult> {
+  const pdfjsLib = await import("pdfjs-dist");
+  const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const total = Math.min(pdf.numPages, maxPages);
