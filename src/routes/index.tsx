@@ -10,8 +10,7 @@ import {
   computeQE,
   type PageAnalysis,
 } from "@/lib/attention";
-import { summarizeDocument } from "@/lib/ai.functions";
-import { useServerFn } from "@tanstack/react-start";
+import { summarizeDocument } from "@/lib/ai";
 import { BrainCircuit, Eye, Layers, Loader2, ScanText, Sparkles, Zap } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -30,7 +29,6 @@ async function digestText(input: string) {
 }
 
 function Index() {
-  const summarizeFn = useServerFn(summarizeDocument);
   const runIdRef = useRef(0);
   const summaryCacheRef = useRef(new Map<string, string>());
 
@@ -94,7 +92,7 @@ function Index() {
       setStage("done");
 
       if (!cachedSummary && fullText.trim()) {
-        summarizeFn({ data: { documentId, fileName: file.name, pageCount: analyses.length, fullText } })
+        summarizeDocument({ documentId, fileName: file.name, pageCount: analyses.length, fullText })
           .then((r) => {
             if (runId !== runIdRef.current) return;
             if (r.summary) summaryCacheRef.current.set(documentId, r.summary);
@@ -109,7 +107,7 @@ function Index() {
                 : prev,
             );
           })
-          .catch((e) => {
+          .catch((e: unknown) => {
             if (runId !== runIdRef.current) return;
             setResult((prev) =>
               prev?.documentId === documentId
