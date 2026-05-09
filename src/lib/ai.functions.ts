@@ -2,7 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "google/gemini-1.5-flash";
+// Provider-supported models, ordered by preference. The first one that
+// works is cached for subsequent calls so we don't keep paying the
+// fallback latency on every request.
+const MODEL_FALLBACKS = [
+  "google/gemini-3-flash-preview",
+  "google/gemini-2.5-flash",
+  "google/gemini-2.5-flash-lite",
+  "openai/gpt-5-mini",
+  "openai/gpt-5-nano",
+] as const;
+let activeModel: string = MODEL_FALLBACKS[0];
 const MIN_REQUEST_GAP_MS = 4_000;
 const COOLDOWN_MS = 45_000;
 const LARGE_DOCUMENT_CHARS = 80_000;
@@ -34,7 +44,9 @@ function enqueue<T>(job: () => Promise<T>) {
   return run;
 }
 
-async function callGemini(body: unknown) {
+type ChatBody = { model?: string; messages: Array<{ role: string; content: string }> };
+
+async function callAi(body: ChatBody) {
   const key = process.env.LOVABLE_API_KEY;
   if (!key) throw new Error("AI service is not configured.");
 
@@ -46,36 +58,50 @@ async function callGemini(body: unknown) {
   const gap = Date.now() - lastRequestAt;
   if (gap < MIN_REQUEST_GAP_MS) await sleep(MIN_REQUEST_GAP_MS - gap);
 
-  const maxAttempts = 4;
+  // Try the active model first, then walk the fallback list on
+  // "invalid model" / 400-style errors so a deprecated model id never
+  // breaks the pipeline.
+  const models = [activeModel, ...MODEL_FALLBACKS.filter((m) => m !== activeModel)];
   let lastErr = "";
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    lastRequestAt = Date.now();
-    const res = await fetch(GATEWAY, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) return res.json();
-
-    const txt = await res.text();
-    lastErr = txt;
-    if (res.status === 429) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 0;
-      const delay = retryAfter > 0 ? retryAfter * 1000 : 1500 * Math.pow(2, attempt);
-      cooldownUntil = Date.now() + Math.max(COOLDOWN_MS, delay);
+  for (const model of models) {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      lastRequestAt = Date.now();
+      const res = await fetch(GATEWAY, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, model }),
+      });
+      if (res.ok) {
+        activeModel = model;
+        return res.json();
+      }
+      const txt = await res.text();
+      lastErr = `${res.status} ${txt.slice(0, 200)}`;
+      if (res.status === 402) throw new Error("AI credits are exhausted.");
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get("retry-after")) || 0;
+        const delay = retryAfter > 0 ? retryAfter * 1000 : 1500 * Math.pow(2, attempt);
+        cooldownUntil = Date.now() + Math.max(COOLDOWN_MS, delay);
+        if (attempt < maxAttempts - 1) {
+          await sleep(delay);
+          continue;
+        }
+        // try next model on persistent 429
+        break;
+      }
+      if (res.status === 400 || res.status === 404) {
+        // invalid/unknown model -> try the next fallback immediately
+        break;
+      }
+      // other errors: try a couple more attempts on the same model
       if (attempt < maxAttempts - 1) {
-        await sleep(delay);
+        await sleep(800 * (attempt + 1));
         continue;
       }
-      throw new Error("AI summary temporarily unavailable because the provider is rate limited.");
     }
-    if (res.status === 402) throw new Error("AI credits are exhausted.");
-    throw new Error(`AI analysis failed (${res.status}): ${txt.slice(0, 180)}`);
   }
-  throw new Error(`AI analysis failed after retries: ${lastErr.slice(0, 180)}`);
+  throw new Error(`AI analysis failed: ${lastErr || "no compatible model available"}`);
 }
 
 function splitText(text: string) {
@@ -88,8 +114,7 @@ function splitText(text: string) {
 
 async function summarizeText(fullText: string) {
   const directText = fullText.slice(0, MAX_DIRECT_CHARS);
-  const json = await callGemini({
-    model: MODEL,
+  const json = await callAi({
     messages: [
       {
         role: "system",
@@ -109,8 +134,7 @@ async function summarizeLargeText(fullText: string) {
   const chunks = splitText(fullText);
   const briefs: string[] = [];
   for (let i = 0; i < chunks.length; i++) {
-    const json = await callGemini({
-      model: MODEL,
+    const json = await callAi({
       messages: [
         {
           role: "system",
