@@ -54,9 +54,13 @@ export function computeDocumentScore(pages: PageAnalysis[]) {
 
 export function computeQE(pages: PageAnalysis[]) {
   if (!pages.length) return { qeScore: 0, avgConfidence: 0, precision: 0, recall: 0 };
-  const avgConfidence = pages.reduce((a, p) => a + p.confidence, 0) / pages.length;
-  const precision = Math.min(0.99, avgConfidence + 0.02);
-  const recall = Math.min(0.99, avgConfidence - 0.04);
+  // Only score pages that actually produced text; otherwise CER/WER
+  // would be a fabricated number for blank/image-only pages.
+  const scored = pages.filter((p) => p.wordCount > 0);
+  if (!scored.length) return { qeScore: 0, avgConfidence: 0, precision: 0, recall: 0 };
+  const avgConfidence = scored.reduce((a, p) => a + p.confidence, 0) / scored.length;
+  const precision = Math.min(0.99, Math.max(0, avgConfidence + 0.02));
+  const recall = Math.min(0.99, Math.max(0, avgConfidence - 0.04));
   const qeScore = 0.5 * avgConfidence + 0.25 * precision + 0.25 * recall;
   return { qeScore, avgConfidence, precision, recall };
 }
