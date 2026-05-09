@@ -63,8 +63,7 @@ function Index() {
       );
 
       setStage("ocr");
-      const modPath = "@/lib/paddleOcr.client";
-      const { runPaddleOcr } = (await import(/* @vite-ignore */ modPath)) as typeof import("@/lib/paddleOcr.client");
+      const { runPaddleOcr } = await import("@/lib/paddleOcr");
       const analyses: PageAnalysis[] = [];
       for (let i = 0; i < rendered.length; i++) {
         setProgress({ current: i + 1, total: rendered.length, label: "Extracting text with local PaddleOCR" });
