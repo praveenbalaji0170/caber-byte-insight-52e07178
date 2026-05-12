@@ -58,6 +58,22 @@ function pageQE(p: PageAnalysis) {
 // from paragraph index against the page height — this is a structural
 // visualization, not a true bounding-box detector.
 function buildRegions(p: PageAnalysis, page?: RenderedPage) {
+  // Prefer REAL OCR regions from the engine when available (line-level
+  // bboxes + per-region confidence). Falls back to a paragraph-derived
+  // structural visualization for pages with no engine regions.
+  if (p.ocrRegions && p.ocrRegions.length && page) {
+    return p.ocrRegions.map((r, i) => {
+      const isHeading = r.text.length < 80 && !/\n/.test(r.text);
+      return {
+        id: i,
+        type: isHeading ? "heading" : "paragraph",
+        text: r.text,
+        confidence: r.confidence,
+        score: p.pageScore * (0.6 + 0.4 * Math.min(1, r.text.length / 200)),
+        box: r.box,
+      };
+    });
+  }
   const paragraphs = (p.text || "")
     .split(/\n\s*\n/)
     .map((s) => s.trim())
