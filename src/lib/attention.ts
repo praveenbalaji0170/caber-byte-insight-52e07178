@@ -1,4 +1,5 @@
 import type { RenderedPage } from "./pdf";
+import type { OcrRegion } from "./paddleOcr";
 
 export interface PageAnalysis {
   pageNumber: number;
@@ -6,6 +7,7 @@ export interface PageAnalysis {
   confidence: number;
   wordCount: number;
   regions?: number;
+  ocrRegions?: OcrRegion[];
   engine?: string;
   ocrError?: string;
   textDensity: number; // TD
@@ -16,7 +18,15 @@ export interface PageAnalysis {
 
 export function computePageScore(
   page: RenderedPage,
-  ocr: { text: string; confidence: number; wordCount: number; regions?: number; engine?: string; error?: string },
+  ocr: {
+    text: string;
+    confidence: number;
+    wordCount: number;
+    regions?: number;
+    ocrRegions?: OcrRegion[];
+    engine?: string;
+    error?: string;
+  },
 ): PageAnalysis {
   const area = page.width * page.height;
   const td = Math.min(1, ocr.wordCount / 400); // text density proxy
@@ -35,6 +45,7 @@ export function computePageScore(
     confidence: ocr.confidence,
     wordCount: ocr.wordCount,
     regions: ocr.regions,
+    ocrRegions: ocr.ocrRegions,
     engine: ocr.engine,
     ocrError: ocr.error,
     textDensity: td,
